@@ -108,7 +108,22 @@ BƯỚC 4. Giới hạn khi đổi tên
 
 BƯỚC 5. Chọn "query_type" theo thứ tự, gặp điều kiện đúng đầu tiên thì dừng
 a. Đã thêm "lecturer_name": "other".
-b. Tin nhắn yêu cầu đếm hoặc liệt kê toàn bộ giảng viên và không nêu bất kỳ ngành, chủ đề, ID, email hay số điện thoại nào, kể cả ngành hoặc chủ đề không có trong danh sách: "list_all".
+
+b. Nếu tin nhắn hỏi số lượng, tổng số, hoặc yêu cầu liệt kê
+giảng viên của Khoa Công nghệ Thông tin, Khoa CNTT,
+hoặc toàn bộ giảng viên trong hệ thống và không giới hạn
+theo một ngành hay lĩnh vực nghiên cứu cụ thể,
+thì "query_type": "list_all".
+
+Các cách hỏi tương đương:
+- Khoa công nghệ thông tin có bao nhiêu giảng viên?
+- Có tất cả bao nhiêu giảng viên trong Khoa Công nghệ Thông tin?
+- Khoa CNTT có mấy giảng viên?
+- Khoa CNTT có tổng cộng bao nhiêu thầy cô?
+- Tổng số giảng viên của khoa công nghệ thông tin là bao nhiêu?
+- Liệt kê tất cả giảng viên khoa CNTT.
+- Kể tên toàn bộ giảng viên trong khoa.
+- Có bao nhiêu giảng viên trong hệ thống?
 c. Không có "major" và không có "research_areas": "other".
 d. Tin nhắn không hỏi về người (ví dụ hỏi khái niệm hoặc chương trình học): "other".
 e. Tin nhắn nhờ tư vấn hoặc chọn người ("nên", "gợi ý", "phù hợp", "giỏi nhất", "tốt nhất", "hướng dẫn em") và không có yêu cầu đếm hay liệt kê rõ ràng: "other".
@@ -125,7 +140,7 @@ DANH SÁCH CHUYÊN NGÀNH (tên chuẩn):
     + """
 
 CÁCH GỌI CHUYÊN NGÀNH:
-Software Engineering: công nghệ phần mềm, kỹ thuật phần mềm, kỹ nghệ phần mềm, CNPM, phần mềm (sau chữ "ngành")
+Software Engineering: công nghệ phần mềm, kỹ thuật phần mềm, kỹ nghệ phần mềm, CNPM, SE, phần mềm (sau chữ "ngành")
 Data communications and Computer Networks: truyền thông dữ liệu và mạng máy tính, truyền dữ liệu và mạng máy tính, truyền thông dữ liệu, CNDC, mạng máy tính (sau chữ "ngành"), mạng (sau chữ "ngành")
 
 DANH SÁCH LĨNH VỰC (tên chuẩn):
@@ -218,6 +233,22 @@ Kết quả: {"email": "vinh.phan@eiu.edu.vn", "query_type": "other"}
 Tin nhắn: "Có bao nhiêu giảng viên?"
 Kết quả: {"query_type": "list_all"}
 
+
+Tin nhắn: "Khoa công nghệ thông tin có bao nhiêu giảng viên?"
+Kết quả: {"query_type": "list_all"}
+
+Tin nhắn: "Có tất cả bao nhiêu giảng viên trong Khoa Công nghệ Thông tin?"
+Kết quả: {"query_type": "list_all"}
+
+Tin nhắn: "Khoa CNTT có mấy giảng viên?"
+Kết quả: {"query_type": "list_all"}
+
+Tin nhắn: "Tổng số giảng viên của khoa CNTT là bao nhiêu?"
+Kết quả: {"query_type": "list_all"}
+
+Tin nhắn: "Cho tôi danh sách giảng viên Khoa Công nghệ Thông tin"
+Kết quả: {"query_type": "list_all"}
+
 Tin nhắn: "Liệt kê tất cả giảng viên"
 Kết quả: {"query_type": "list_all"}
 
@@ -232,6 +263,18 @@ Kết quả: {"research_areas": ["Machine Learning"], "query_type": "list"}
 
 Tin nhắn: "Xin chào"
 Kết quả: {"query_type": "other"}
+
+Tin nhắn: "Tôi muốn biết toàn bộ tên giáo viên của ngành kỹ thuật phần mềm"
+Kết quả: {"major": "Software Engineering", "query_type": "list"}
+
+Tin nhắn: "Cho tôi toàn bộ thông tin giảng viên ngành kỹ thuật phần mềm"
+Kết quả: {"major": "Software Engineering", "query_type": "list"}
+
+Tin nhắn: "Cho tôi danh sách giảng viên ngành mạng máy tính và truyền thông dữ liệu"
+Kết quả: {"major": "Data communications and Computer Networks", "query_type": "list"}
+
+Tin nhắn: "Cho tôi toàn bộ thông tin giảng viên ngành mạng máy tính và truyền thông dữ liệu"
+Kết quả: {"major": "Data communications and Computer Networks", "query_type": "list"}
 """
 )
 
@@ -847,6 +890,189 @@ def get_lecturer_contact_answer(
     return "\n".join(lines)
 
 
+# LAY TOAN BO GIANG VIEN THEO NGANH
+def get_all_lecturer_information(major):
+    search_filter = build_search_filter(major=major)
+
+    lecturers = {}
+    offset = None
+
+    while True:
+        points, offset = qdrant.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=search_filter,
+            limit=100,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False
+        )
+
+        for point in points:
+            data = point.payload or {}
+
+            lecturer_id = data.get("parent_doc_id")
+            name = data.get("lecturer_name")
+
+            if not name:
+                continue
+
+            if lecturer_id not in lecturers:
+                lecturers[lecturer_id] = {
+                    "name": name,
+                    "email": data.get("email"),
+                    "phone": data.get("phone"),
+                    "major": data.get("major"),
+                    "research_areas": data.get("research_areas", []),
+                    "content": []
+                }
+
+            content = data.get("content")
+
+            if content and content not in lecturers[lecturer_id]["content"]:
+                lecturers[lecturer_id]["content"].append(content)
+
+        if offset is None:
+            break
+
+    return sorted(
+        lecturers.values(),
+        key=lambda item: item["name"]
+    )
+
+
+# DINH DANG THONG TIN DAY DU
+def format_all_lecturer_information(lecturers, major):
+    if not lecturers:
+        return f"Không tìm thấy giảng viên ngành {major}."
+
+    lines = [f"Có {len(lecturers)} giảng viên ngành {major}:"]
+
+    for index, lecturer in enumerate(lecturers, 1):
+        lines.append(f"\n{index}. {lecturer['name']}")
+        lines.append(f"Email: {lecturer['email'] or 'Chưa có thông tin'}")
+        lines.append(f"Số điện thoại: {lecturer['phone'] or 'Chưa có thông tin'}")
+
+        areas = lecturer["research_areas"]
+
+        if isinstance(areas, list):
+            areas = ", ".join(areas)
+
+        lines.append(f"Hướng nghiên cứu: {areas or 'Chưa có thông tin'}")
+
+        if lecturer["content"]:
+            lines.append(
+                "Thông tin chi tiết:\n" +
+                "\n".join(lecturer["content"])
+            )
+
+    return "\n".join(lines)
+
+
+# XAC DINH NGUOI DUNG MUON XEM TEN HAY THONG TIN
+def get_lecturer_display_type(query):
+    text = normalize_lecturer_name(query)
+
+    full_info_keywords = [
+        "toan bo thong tin",
+        "day du thong tin",
+        "thong tin chi tiet",
+        "thong tin day du",
+        "chi tiet tat ca"
+    ]
+
+    for keyword in full_info_keywords:
+        if keyword in text:
+            return "full"
+
+    name_keywords = [
+        "toan bo ten",
+        "tat ca ten",
+        "danh sach",
+        "liet ke",
+        "ke ten",
+        "nhung giang vien nao",
+        "nhung giao vien nao",
+        "ten giao vien",
+        "ten giang vien"
+    ]
+
+    for keyword in name_keywords:
+        if keyword in text:
+            return "name"
+
+    return None
+
+# SO SANH SO LUONG GIANG VIEN GIUA HAI NGANH
+def compare_lecturer_count():
+
+    se = list_lecturers(
+        major="Software Engineering"
+    )
+
+    cndc = list_lecturers(
+        major="Data communications and Computer Networks"
+    )
+
+    se_count = len(se)
+    cndc_count = len(cndc)
+
+    answer = (
+        "Số lượng giảng viên của hai ngành:\n\n"
+        f"1. Kỹ thuật phần mềm (SE): {se_count} giảng viên.\n"
+        f"2. Mạng máy tính và Truyền thông dữ liệu (CNDC): "
+        f"{cndc_count} giảng viên.\n\n"
+    )
+
+    if se_count > cndc_count:
+        answer += (
+            "Kết luận: Ngành Kỹ thuật phần mềm có nhiều "
+            f"giảng viên hơn ngành Mạng máy tính và "
+            f"Truyền thông dữ liệu {se_count - cndc_count} người."
+        )
+
+    elif cndc_count > se_count:
+        answer += (
+            "Kết luận: Ngành Mạng máy tính và Truyền thông dữ liệu "
+            f"có nhiều giảng viên hơn ngành Kỹ thuật phần mềm "
+            f"{cndc_count - se_count} người."
+        )
+
+    else:
+        answer += "Kết luận: Hai ngành có số lượng giảng viên bằng nhau."
+
+    return answer
+
+# NHAN DIEN CAU HOI SO SANH SO LUONG GIANG VIEN
+
+def is_compare_lecturer_question(query):
+    text = normalize_lecturer_name(query)
+
+    compare_keywords = [
+        "nganh nao co nhieu giang vien hon",
+        "nganh nao nhieu giang vien hon",
+        "nganh nao co it giang vien hon",
+        "nganh nao it giang vien hon",
+        "nganh nao dong giang vien hon",
+        "so sanh so luong giang vien",
+        "so sanh so giang vien",
+        "moi nganh co bao nhieu giang vien",
+        "moi nganh trong khoa co bao nhieu giang vien",
+        "so luong giang vien cua tung nganh",
+        "tung nganh co bao nhieu giang vien",
+        "so giang vien cua moi nganh",
+        "so giang vien tung nganh",
+        "thong ke so luong giang vien theo nganh",
+        "thong ke giang vien theo nganh",
+        "hai nganh co bao nhieu giang vien",
+        "ca hai nganh co bao nhieu giang vien"
+    ]
+
+    return any(
+        keyword in text
+        for keyword in compare_keywords
+    )
+
+
 def generate_answer_stream(
     query: str,
     filters: dict | None = None,
@@ -862,6 +1088,15 @@ def generate_answer_stream(
 
     try:
         filters = filters or {}
+
+
+        # XU LY CAU HOI SO SANH SO LUONG GIANG VIEN
+        if is_compare_lecturer_question(query):
+
+            answer = compare_lecturer_count()
+
+            yield answer
+            return
 
 
         # EXACT-MATCH RETRIEVAL: TIM CHU SO HUU EMAIL / SO DIEN THOAI
@@ -1090,6 +1325,34 @@ def generate_answer_stream(
                 )
             else:
                 clear_pending_selection(session_id)
+        
+        # HIEN THI DANH SACH HOAC THONG TIN GIANG VIEN THEO NGANH
+        display_type = get_lecturer_display_type(query)
+        selected_major = filters.get("major")
+
+        if selected_major and display_type in ("name", "full"):
+
+            if display_type == "name":
+                lecturers = list_lecturers(major=selected_major)
+
+                answer = format_lecturer_list(
+                    lecturers,
+                    major=selected_major
+                )
+
+            else:
+                lecturers = get_all_lecturer_information(
+                    selected_major
+                )
+
+                answer = format_all_lecturer_information(
+                    lecturers,
+                    selected_major
+                )
+
+            yield answer
+            return
+
 
         # Exhaustive questions ("Có bao nhiêu...") are answered by code, others by top-k RAG.
         query_type = filters.get("query_type")
